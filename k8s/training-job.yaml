@@ -36,8 +36,8 @@ spec:
             - "--tensorboard_dir=/data/logs"
             - "--data_dir=/dataset/tokenized"
             - "--hf_repo=soyrsoyr/erebus-v2-1.5b-base"
-            - "--per_device_batch_size=16"
-            - "--gradient_accumulation_steps=4"
+            - "--per_device_batch_size=8"
+            - "--gradient_accumulation_steps=8"
           env:
             - name: HF_HOME
               value: /data/hf_cache
@@ -62,7 +62,7 @@ spec:
             - name: TRITON_CACHE_DIR
               value: /tmp/.triton
             - name: PYTORCH_CUDA_ALLOC_CONF
-              value: "expandable_segments:True"
+              value: "max_split_size_mb:512"
           resources:
             requests:
               nvidia.com/gpu: "8"
@@ -83,7 +83,7 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: soyr-redhat-erebus-v2-1-5b-data
+            claimName: soyr-redhat-erebus-v2-1.5b-data
         - name: dataset
           persistentVolumeClaim:
             claimName: soyr-redhat-erebus-v2-dataset

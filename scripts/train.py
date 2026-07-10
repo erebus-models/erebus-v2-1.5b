@@ -312,6 +312,8 @@ def main():
     else:
         model = Qwen3ForCausalLM(config).to(torch.bfloat16)
 
+    model.gradient_checkpointing_enable()
+
     param_count = sum(p.numel() for p in model.parameters())
     if is_main:
         print(f"Model parameters: {param_count:,} ({param_count/1e6:.1f}M)")
