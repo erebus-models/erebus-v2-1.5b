@@ -1,0 +1,91 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: soyr-redhat-erebus-v2-1-5b-train
+  namespace: machine-learning
+  labels:
+    app: soyr-redhat-erebus-v2
+    owner: soyr-redhat
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app: soyr-redhat-erebus-v2
+        owner: soyr-redhat
+    spec:
+      restartPolicy: OnFailure
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.product
+                    operator: In
+                    values:
+                      - NVIDIA-A100-SXM4-80GB
+      containers:
+        - name: trainer
+          image: image-registry.openshift-image-registry.svc:5000/machine-learning/erebus-v2:latest
+          command: ["torchrun"]
+          args:
+            - "--nproc_per_node=4"
+            - "--standalone"
+            - "scripts/train.py"
+            - "--output_dir=/data/checkpoints"
+            - "--tensorboard_dir=/data/logs"
+            - "--data_dir=/dataset/tokenized"
+            - "--hf_repo=soyrsoyr/erebus-v2-1.5b-base"
+          env:
+            - name: HF_HOME
+              value: /data/hf_cache
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: soyr-redhat-erebus-v2-secrets
+                  key: hf-token
+                  optional: true
+            - name: TOKENIZERS_PARALLELISM
+              value: "false"
+            - name: NCCL_DEBUG
+              value: "WARN"
+            - name: NCCL_ASYNC_ERROR_HANDLING
+              value: "1"
+            - name: TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC
+              value: "600"
+            - name: TORCH_NCCL_BLOCKING_WAIT
+              value: "0"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: TRITON_CACHE_DIR
+              value: /tmp/.triton
+            - name: PYTORCH_CUDA_ALLOC_CONF
+              value: "expandable_segments:True"
+          resources:
+            requests:
+              nvidia.com/gpu: "4"
+              cpu: "32"
+              memory: 128Gi
+            limits:
+              nvidia.com/gpu: "4"
+              cpu: "48"
+              memory: 192Gi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: dataset
+              mountPath: /dataset
+              readOnly: true
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: soyr-redhat-erebus-v2-1-5b-data
+        - name: dataset
+          persistentVolumeClaim:
+            claimName: soyr-redhat-erebus-v2-dataset
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Gi
