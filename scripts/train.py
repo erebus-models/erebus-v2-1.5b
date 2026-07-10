@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Erebus v2 1.5B — Llama pretraining on curated data mix.
+Erebus v2 1.5B — Qwen3-style pretraining on curated data mix.
 
-Architecture: 1,483M params — Llama-style (GQA, RoPE, SwiGLU, RMSNorm)
+Architecture: ~1,475M params — Qwen3-style (GQA, RoPE, SwiGLU, RMSNorm, QK LayerNorm)
 Data: FineWeb-Edu (score>=3) + Cosmopedia v2 + Python-Edu = 10B tokens
 
 Usage (single node, 4 GPUs):
@@ -27,29 +27,30 @@ from torch.utils.data import DataLoader, IterableDataset
 from torch.utils.tensorboard import SummaryWriter
 from transformers import (
     AutoTokenizer,
-    LlamaConfig,
-    LlamaForCausalLM,
+    Qwen3Config,
+    Qwen3ForCausalLM,
 )
 
 
 # ---------------------------------------------------------------------------
-# Model config — 1,483M params with 32K vocab
+# Model config — ~1,475M params, Qwen3-style (QK LayerNorm, head_dim=128)
 # ---------------------------------------------------------------------------
 MODEL_DEFAULTS = dict(
     hidden_size=2048,
-    intermediate_size=5504,
-    num_hidden_layers=32,
-    num_attention_heads=32,
+    intermediate_size=6144,
+    num_hidden_layers=28,
+    num_attention_heads=16,
     num_key_value_heads=8,
+    head_dim=128,
     vocab_size=32000,
-    max_position_embeddings=2048,
+    max_position_embeddings=4096,
 )
 
 MODEL_FIXED = dict(
-    rms_norm_eps=1e-5,
+    rms_norm_eps=1e-6,
     hidden_act="silu",
     tie_word_embeddings=True,
-    rope_theta=10000.0,
+    rope_theta=1000000.0,
     attention_bias=False,
     attention_dropout=0.0,
     torch_dtype="bfloat16",
@@ -234,7 +235,7 @@ def get_lr(step, total_steps, warmup_steps, max_lr, min_lr):
 # Main training loop
 # ---------------------------------------------------------------------------
 def main():
-    parser = argparse.ArgumentParser(description="Erebus v2 1.5B pretraining")
+    parser = argparse.ArgumentParser(description="Erebus v2 1.5B Qwen3-style pretraining")
     for key, default in TRAIN_DEFAULTS.items():
         arg_type = type(default) if default is not None else str
         if arg_type == bool:
@@ -270,7 +271,7 @@ def main():
 
     if is_main:
         print(f"{'='*60}")
-        print(f"Erebus v2 1.5B — Llama Pretraining")
+        print(f"Erebus v2 1.5B — Qwen3-style Pretraining")
         print(f"{'='*60}")
         print(f"GPUs: {accelerator.num_processes}")
         print(f"Per-device batch: {args.per_device_batch_size}")
@@ -298,18 +299,18 @@ def main():
             resume_dir = existing[-1]
             resume_step = int(resume_dir.name.split("-")[1])
 
-    config = LlamaConfig(**MODEL_CONFIG)
+    config = Qwen3Config(**MODEL_CONFIG)
     config._attn_implementation = "flash_attention_2"
     if resume_dir:
         if is_main:
             print(f"Resuming from checkpoint: {resume_dir} (step {resume_step})", flush=True)
-        model = LlamaForCausalLM.from_pretrained(
+        model = Qwen3ForCausalLM.from_pretrained(
             resume_dir,
             attn_implementation="flash_attention_2",
             torch_dtype=torch.bfloat16,
         )
     else:
-        model = LlamaForCausalLM(config).to(torch.bfloat16)
+        model = Qwen3ForCausalLM(config).to(torch.bfloat16)
 
     param_count = sum(p.numel() for p in model.parameters())
     if is_main:
@@ -438,8 +439,11 @@ def main():
                 running_loss += loss.detach().float().item()
                 log_tokens += batch["input_ids"].numel()
 
+        grad_norm = 0.0
         if args.max_grad_norm > 0:
-            accelerator.clip_grad_norm_(model.parameters(), args.max_grad_norm)
+            grad_norm = accelerator.clip_grad_norm_(model.parameters(), args.max_grad_norm)
+            if hasattr(grad_norm, 'item'):
+                grad_norm = grad_norm.item()
         optimizer.step()
         optimizer.zero_grad()
 
@@ -457,12 +461,14 @@ def main():
                 f"step {global_step:>6d}/{total_steps} | "
                 f"loss {avg_loss:.4f} | "
                 f"lr {lr:.2e} | "
+                f"grad {grad_norm:.4f} | "
                 f"tok/s {tps:,.0f} | "
                 f"tokens {tokens_seen:,.0f} | "
                 f"ETA {eta/3600:.1f}h"
             )
             writer.add_scalar("train/loss", avg_loss, global_step)
             writer.add_scalar("train/lr", lr, global_step)
+            writer.add_scalar("train/grad_norm", grad_norm, global_step)
             writer.add_scalar("train/tokens_per_sec", tps, global_step)
             writer.add_scalar("train/tokens_seen", tokens_seen, global_step)
 
