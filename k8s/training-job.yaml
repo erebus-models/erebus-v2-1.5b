@@ -29,13 +29,15 @@ spec:
           image: image-registry.openshift-image-registry.svc:5000/machine-learning/erebus-v2:latest
           command: ["torchrun"]
           args:
-            - "--nproc_per_node=4"
+            - "--nproc_per_node=8"
             - "--standalone"
             - "scripts/train.py"
             - "--output_dir=/data/checkpoints"
             - "--tensorboard_dir=/data/logs"
             - "--data_dir=/dataset/tokenized"
             - "--hf_repo=soyrsoyr/erebus-v2-1.5b-base"
+            - "--per_device_batch_size=16"
+            - "--gradient_accumulation_steps=4"
           env:
             - name: HF_HOME
               value: /data/hf_cache
@@ -63,13 +65,13 @@ spec:
               value: "expandable_segments:True"
           resources:
             requests:
-              nvidia.com/gpu: "4"
-              cpu: "32"
-              memory: 128Gi
+              nvidia.com/gpu: "8"
+              cpu: "64"
+              memory: 256Gi
             limits:
-              nvidia.com/gpu: "4"
-              cpu: "48"
-              memory: 192Gi
+              nvidia.com/gpu: "8"
+              cpu: "80"
+              memory: 512Gi
           volumeMounts:
             - name: data
               mountPath: /data
