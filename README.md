@@ -11,7 +11,7 @@ A 1.5B parameter language model trained from scratch using the Qwen3 dense archi
 | **Parameters** | 1,474M |
 | **Architecture** | Qwen3 Dense |
 | **Context Length** | 2,048 tokens (4,096 max) |
-| **Vocab Size** | 32,000 (Llama-2 tokenizer) |
+| **Tokenizer** | Llama-2 (32K vocab) |
 | **Precision** | bfloat16 |
 | **Training Data** | 10B tokens |
 | **HuggingFace** | [soyrsoyr/erebus-v2-1.5b-base](https://huggingface.co/soyrsoyr/erebus-v2-1.5b-base) |
@@ -32,6 +32,10 @@ Qwen3-style transformer with QK LayerNorm for stable training:
 | Position Encoding | RoPE (theta=1M) |
 | Attention Bias | None |
 | Tied Embeddings | Yes |
+
+## Tokenizer
+
+This model uses the Llama-2 tokenizer (`NousResearch/Llama-2-7b-hf`, 32K vocab) rather than Qwen3's native tokenizer (150K+ vocab). The tokenizer and model architecture are independent — the model just needs `vocab_size` to match. The Llama-2 tokenizer was inherited from Erebus v1 and retained here for compatibility with the pre-tokenized dataset. A larger vocabulary tokenizer (e.g. Llama-3 128K or Qwen3 150K) would improve token efficiency and is a candidate for future training runs.
 
 ## Training Data
 
