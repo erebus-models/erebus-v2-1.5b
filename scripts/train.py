@@ -491,6 +491,17 @@ def main():
                 )
                 tokenizer.save_pretrained(save_dir)
                 torch.save(optimizer.state_dict(), save_dir / "optimizer.pt")
+
+                import shutil
+                max_keep = 2
+                ckpts = sorted(
+                    [d for d in Path(args.output_dir).iterdir()
+                     if d.is_dir() and d.name.startswith("step-")],
+                    key=lambda d: int(d.name.split("-")[1]),
+                )
+                for old in ckpts[:-max_keep]:
+                    print(f"Removing old checkpoint: {old}", flush=True)
+                    shutil.rmtree(old)
             accelerator.wait_for_everyone()
 
     final_dir = Path(args.output_dir) / "final"
