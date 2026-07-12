@@ -307,10 +307,10 @@ def main():
         model = Qwen3ForCausalLM.from_pretrained(
             resume_dir,
             attn_implementation="flash_attention_2",
-            torch_dtype=torch.bfloat16,
+            torch_dtype=torch.float32,
         )
     else:
-        model = Qwen3ForCausalLM(config).to(torch.bfloat16)
+        model = Qwen3ForCausalLM(config)
 
     model.gradient_checkpointing_enable()
 
