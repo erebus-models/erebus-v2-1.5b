@@ -112,7 +112,7 @@ torchrun --nproc_per_node=8 --standalone scripts/train.py \
 
 ## Previous Version
 
-[Erebus v1 (487M)](https://huggingface.co/soyrsoyr/erebus-487m-base) — Llama-style, trained on 529M tokens of FineWeb-Edu. This v2 model is a significant scale-up in both model size (3x) and data (19x).
+[Erebus v1 (487M)](https://huggingface.co/soyrsoyr/erebus-487m-base) — Llama-style, trained on 529M tokens of FineWeb-Edu. This v2 1.5B model is a significant scale-up in both model size and data.
 
 ## License
 
