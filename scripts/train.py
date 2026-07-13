@@ -65,11 +65,12 @@ TRAIN_DEFAULTS = dict(
     seq_len=2048,
     per_device_batch_size=8,       # sequences per GPU per micro-step (smaller for 1.5B)
     gradient_accumulation_steps=8,  # effective batch = 8 * 4 GPUs * 8 = 256 seqs
-    learning_rate=2e-4,
+    learning_rate=4e-4,
     min_lr_ratio=0.1,
-    warmup_ratio=0.01,
+    warmup_ratio=0.0,
+    warmup_steps=2000,
     weight_decay=0.1,
-    max_grad_norm=1.0,
+    max_grad_norm=5.0,
     adam_beta1=0.9,
     adam_beta2=0.95,
     adam_eps=1e-8,
@@ -267,7 +268,7 @@ def main():
         * args.seq_len
     )
     total_steps = args.total_tokens // tokens_per_step
-    warmup_steps = int(total_steps * args.warmup_ratio)
+    warmup_steps = args.warmup_steps if args.warmup_steps > 0 else int(total_steps * args.warmup_ratio)
 
     if is_main:
         print(f"{'='*60}")
