@@ -52,13 +52,13 @@ Data is packed into fixed-length sequences with no padding, stored as memory-map
 | | |
 |---|---|
 | Optimizer | AdamW (fused) |
-| Learning Rate | 2e-4 (cosine decay to 2e-5) |
+| Learning Rate | 3e-4 (cosine decay to 3e-5) |
 | Batch Size | 512 sequences (8 batch x 8 grad_accum x 8 GPUs) |
 | Tokens per Step | ~1M |
-| Warmup | 1% of total steps |
+| Warmup | 2,000 steps (fixed) |
 | Weight Decay | 0.1 |
 | Betas | (0.9, 0.95) |
-| Max Grad Norm | 1.0 |
+| Max Grad Norm | 7.5 |
 | Gradient Checkpointing | Enabled |
 | Mixed Precision | bf16 |
 
