@@ -70,7 +70,7 @@ TRAIN_DEFAULTS = dict(
     warmup_ratio=0.0,
     warmup_steps=2000,
     weight_decay=0.1,
-    max_grad_norm=7.5,
+    max_grad_norm=10.0,
     adam_beta1=0.9,
     adam_beta2=0.95,
     adam_eps=1e-8,
@@ -78,7 +78,7 @@ TRAIN_DEFAULTS = dict(
     save_interval=500,
     eval_interval=500,
     eval_steps=20,
-    seed=42,
+    seed=137,
     bf16=True,
     compile_model=False,
     dataset_name="HuggingFaceFW/fineweb-edu",
@@ -168,7 +168,7 @@ class DiskPackedDataset(IterableDataset):
     """
 
     def __init__(self, data_dir, seq_len, dp_rank=0, dp_world_size=1,
-                 seed=42, skip_sequences=0):
+                 seed=137, skip_sequences=0):
         self.seq_len = seq_len
         self.dp_rank = dp_rank
         self.dp_world_size = dp_world_size

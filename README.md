@@ -58,7 +58,7 @@ Data is packed into fixed-length sequences with no padding, stored as memory-map
 | Warmup | 2,000 steps (fixed) |
 | Weight Decay | 0.1 |
 | Betas | (0.9, 0.95) |
-| Max Grad Norm | 7.5 |
+| Max Grad Norm | 10.0 |
 | Gradient Checkpointing | Enabled |
 | Mixed Precision | bf16 |
 
