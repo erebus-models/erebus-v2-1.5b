@@ -33,7 +33,7 @@ from transformers import (
 
 
 # ---------------------------------------------------------------------------
-# Model config — ~1,475M params, Qwen3-style (QK LayerNorm, head_dim=128)
+# Model config — ~1,720M params, Qwen3-style (QK LayerNorm, head_dim=128)
 # ---------------------------------------------------------------------------
 MODEL_DEFAULTS = dict(
     hidden_size=2048,
@@ -42,7 +42,7 @@ MODEL_DEFAULTS = dict(
     num_attention_heads=16,
     num_key_value_heads=8,
     head_dim=128,
-    vocab_size=32000,
+    vocab_size=151669,
     max_position_embeddings=4096,
 )
 
@@ -61,22 +61,22 @@ MODEL_FIXED = dict(
 # Training hyperparameters
 # ---------------------------------------------------------------------------
 TRAIN_DEFAULTS = dict(
-    total_tokens=10_000_000_000,  # 10B tokens
+    total_tokens=5_546_963_076,  # ~5.5B tokens
     seq_len=2048,
-    per_device_batch_size=8,       # sequences per GPU per micro-step (smaller for 1.5B)
-    gradient_accumulation_steps=8,  # effective batch = 8 * 4 GPUs * 8 = 256 seqs
-    learning_rate=3e-4,
+    per_device_batch_size=8,        # sequences per GPU per micro-step
+    gradient_accumulation_steps=16, # effective batch = 8 * 4 GPUs * 16 = 512 seqs
+    learning_rate=5e-4,
     min_lr_ratio=0.1,
     warmup_ratio=0.0,
-    warmup_steps=2000,
+    warmup_steps=150,
     weight_decay=0.1,
-    max_grad_norm=10.0,
+    max_grad_norm=1.0,
     adam_beta1=0.9,
     adam_beta2=0.95,
     adam_eps=1e-8,
     log_interval=10,
-    save_interval=500,
-    eval_interval=500,
+    save_interval=250,
+    eval_interval=250,
     eval_steps=20,
     seed=137,
     bf16=True,
@@ -84,11 +84,14 @@ TRAIN_DEFAULTS = dict(
     dataset_name="HuggingFaceFW/fineweb-edu",
     dataset_subset="sample-10BT",
     min_edu_score=0,
-    tokenizer_name="NousResearch/Llama-2-7b-hf",
+    tokenizer_name="Qwen/Qwen3-1.7B",
     output_dir="./checkpoints",
     tensorboard_dir="./logs",
     data_dir=None,
     hf_repo=None,
+    decay_ratio=0.2,
+    resume_from=None,
+    fresh_optimizer=False,
 )
 
 
@@ -183,7 +186,7 @@ class DiskPackedDataset(IterableDataset):
         for line in manifest_path.read_text().strip().split("\n"):
             fname, count = line.split("\t")
             fpath = Path(data_dir) / fname
-            data = np.memmap(fpath, dtype=np.uint16, mode="r")
+            data = np.memmap(fpath, dtype=np.uint32, mode="r")
             self.mmaps.append(data)
             self.seq_counts.append(len(data) // self.stride)
 
@@ -217,18 +220,22 @@ class DiskPackedDataset(IterableDataset):
             chunk = self._get_sequence(idx)
             input_ids = torch.tensor(chunk[:-1].astype(np.int64), dtype=torch.long)
             labels = torch.tensor(chunk[1:].astype(np.int64), dtype=torch.long)
+
             yield {"input_ids": input_ids, "labels": labels}
 
 
 # ---------------------------------------------------------------------------
-# Learning rate schedule — cosine with warmup
+# Learning rate schedule — WSD (Warmup-Stable-Decay)
 # ---------------------------------------------------------------------------
-def get_lr(step, total_steps, warmup_steps, max_lr, min_lr):
+def get_lr(step, total_steps, warmup_steps, max_lr, min_lr, decay_ratio=0.2):
     if step < warmup_steps:
         return max_lr * (step + 1) / warmup_steps
     if step >= total_steps:
         return min_lr
-    progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+    decay_start = int(total_steps * (1 - decay_ratio))
+    if step < decay_start:
+        return max_lr
+    progress = (step - decay_start) / max(1, total_steps - decay_start)
     return min_lr + 0.5 * (max_lr - min_lr) * (1.0 + math.cos(math.pi * progress))
 
 
@@ -282,6 +289,10 @@ def main():
         print(f"Total tokens: {args.total_tokens:,}")
         print(f"Total steps: {total_steps:,}")
         print(f"Warmup steps: {warmup_steps:,}")
+        decay_start = int(total_steps * (1 - args.decay_ratio))
+        print(f"LR schedule: WSD (warmup → stable → cosine decay)")
+        print(f"Stable LR: {args.learning_rate:.1e} until step {decay_start:,}")
+        print(f"Decay: steps {decay_start:,}–{total_steps:,} → {args.learning_rate * args.min_lr_ratio:.1e}")
         print(f"{'='*60}")
 
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name)
@@ -290,15 +301,24 @@ def main():
 
     resume_step = 0
     resume_dir = None
-    ckpt_root = Path(args.output_dir)
-    if ckpt_root.exists():
-        existing = sorted(
-            [d for d in ckpt_root.iterdir() if d.is_dir() and d.name.startswith("step-")],
-            key=lambda d: int(d.name.split("-")[1]),
-        )
-        if existing and (existing[-1] / "optimizer.pt").exists():
-            resume_dir = existing[-1]
-            resume_step = int(resume_dir.name.split("-")[1])
+    if args.resume_from:
+        resume_dir = Path(args.resume_from)
+        import re
+        step_match = re.search(r'(\d+)', resume_dir.name)
+        if step_match:
+            resume_step = int(step_match.group(1))
+        if is_main:
+            print(f"Explicit resume from: {resume_dir} (step {resume_step})", flush=True)
+    else:
+        ckpt_root = Path(args.output_dir)
+        if ckpt_root.exists():
+            existing = sorted(
+                [d for d in ckpt_root.iterdir() if d.is_dir() and d.name.startswith("step-")],
+                key=lambda d: int(d.name.split("-")[1]),
+            )
+            if existing and (existing[-1] / "optimizer.pt").exists():
+                resume_dir = existing[-1]
+                resume_step = int(resume_dir.name.split("-")[1])
 
     config = Qwen3Config(**MODEL_CONFIG)
     config._attn_implementation = "flash_attention_2"
@@ -378,12 +398,14 @@ def main():
 
     model, optimizer, dataloader = accelerator.prepare(model, optimizer, dataloader)
 
-    if resume_dir and (resume_dir / "optimizer.pt").exists():
+    if resume_dir and (resume_dir / "optimizer.pt").exists() and not args.fresh_optimizer:
         opt_state = torch.load(resume_dir / "optimizer.pt", map_location=device, weights_only=True)
         optimizer.load_state_dict(opt_state)
         del opt_state
         if is_main:
             print(f"Optimizer state loaded from {resume_dir}", flush=True)
+    elif resume_dir and args.fresh_optimizer and is_main:
+        print(f"Fresh optimizer: skipping optimizer state from {resume_dir}", flush=True)
 
     if is_main:
         os.makedirs(args.tensorboard_dir, exist_ok=True)
@@ -418,7 +440,8 @@ def main():
 
     while global_step < total_steps:
         lr = get_lr(global_step, total_steps, warmup_steps,
-                    args.learning_rate, args.learning_rate * args.min_lr_ratio)
+                    args.learning_rate, args.learning_rate * args.min_lr_ratio,
+                    args.decay_ratio)
         for pg in optimizer.param_groups:
             pg["lr"] = lr
 
@@ -486,10 +509,13 @@ def main():
             accelerator.wait_for_everyone()
             unwrapped = accelerator.unwrap_model(model)
             if is_main:
+                bf16_state = {k: v.to(torch.bfloat16) for k, v in unwrapped.state_dict().items()}
                 unwrapped.save_pretrained(
                     save_dir,
                     safe_serialization=True,
+                    state_dict=bf16_state,
                 )
+                del bf16_state
                 tokenizer.save_pretrained(save_dir)
                 torch.save(optimizer.state_dict(), save_dir / "optimizer.pt")
 
@@ -511,7 +537,9 @@ def main():
     accelerator.wait_for_everyone()
     unwrapped = accelerator.unwrap_model(model)
     if is_main:
-        unwrapped.save_pretrained(final_dir, safe_serialization=True)
+        bf16_state = {k: v.to(torch.bfloat16) for k, v in unwrapped.state_dict().items()}
+        unwrapped.save_pretrained(final_dir, safe_serialization=True, state_dict=bf16_state)
+        del bf16_state
         tokenizer.save_pretrained(final_dir)
 
         import json
@@ -531,7 +559,9 @@ def main():
 
         if args.hf_repo:
             print(f"Pushing to HuggingFace: {args.hf_repo}")
-            unwrapped.push_to_hub(args.hf_repo, safe_serialization=True)
+            bf16_state = {k: v.to(torch.bfloat16) for k, v in unwrapped.state_dict().items()}
+            unwrapped.push_to_hub(args.hf_repo, safe_serialization=True, state_dict=bf16_state)
+            del bf16_state
             tokenizer.push_to_hub(args.hf_repo)
 
     if is_main:

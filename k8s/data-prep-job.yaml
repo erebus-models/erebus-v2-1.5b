@@ -15,6 +15,8 @@ spec:
         owner: soyr-redhat
     spec:
       restartPolicy: OnFailure
+      nodeSelector:
+        kubernetes.io/hostname: nm-upstream-cluster-a100-worker-a7k9-djcpr
       containers:
         - name: data-prep
           image: image-registry.openshift-image-registry.svc:5000/machine-learning/erebus-v2:latest
@@ -22,7 +24,7 @@ spec:
           args:
             - "scripts/prepare_data.py"
             - "--output_dir=/dataset/tokenized"
-            - "--tokenizer=NousResearch/Llama-2-7b-hf"
+            - "--tokenizer=Qwen/Qwen3-1.7B"
           env:
             - name: HF_HOME
               value: /dataset/hf_cache

@@ -29,7 +29,7 @@ spec:
           image: image-registry.openshift-image-registry.svc:5000/machine-learning/erebus-v2:latest
           command: ["torchrun"]
           args:
-            - "--nproc_per_node=8"
+            - "--nproc_per_node=4"
             - "--standalone"
             - "scripts/train.py"
             - "--output_dir=/data/checkpoints"
@@ -37,7 +37,10 @@ spec:
             - "--data_dir=/dataset/tokenized"
             - "--hf_repo=soyrsoyr/erebus-v2-1.5b-base"
             - "--per_device_batch_size=8"
-            - "--gradient_accumulation_steps=8"
+            - "--gradient_accumulation_steps=32"
+            - "--max_grad_norm=1.0"
+            - "--warmup_steps=150"
+            - "--learning_rate=4e-4"
           env:
             - name: HF_HOME
               value: /data/hf_cache
@@ -65,13 +68,13 @@ spec:
               value: "max_split_size_mb:512"
           resources:
             requests:
-              nvidia.com/gpu: "8"
-              cpu: "64"
-              memory: 256Gi
+              nvidia.com/gpu: "4"
+              cpu: "32"
+              memory: 128Gi
             limits:
-              nvidia.com/gpu: "8"
-              cpu: "80"
-              memory: 512Gi
+              nvidia.com/gpu: "4"
+              cpu: "40"
+              memory: 256Gi
           volumeMounts:
             - name: data
               mountPath: /data
