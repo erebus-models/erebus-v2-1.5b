@@ -1,0 +1,91 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: soyr-redhat-erebus-v2-1-5b-sft
+  namespace: machine-learning
+  labels:
+    app: soyr-redhat-erebus-v2-sft
+    owner: soyr-redhat
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: soyr-redhat-erebus-v2-sft
+        owner: soyr-redhat
+    spec:
+      restartPolicy: OnFailure
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.product
+                    operator: In
+                    values:
+                      - NVIDIA-A100-SXM4-80GB
+      containers:
+        - name: trainer
+          image: image-registry.openshift-image-registry.svc:5000/machine-learning/erebus-v2:latest
+          command: ["torchrun"]
+          args:
+            - "--nproc_per_node=4"
+            - "--standalone"
+            - "scripts/erebus-v2/sft.py"
+            - "--model_path=/data/checkpoints/final"
+            - "--dataset=smoltalk"
+            - "--output_dir=/data/checkpoints"
+            - "--tensorboard_dir=/data/sft-logs"
+            - "--hf_repo=soyrsoyr/erebus-v2-1.5b-instruct"
+            - "--num_epochs=1"
+            - "--per_device_batch_size=4"
+            - "--gradient_accumulation_steps=4"
+            - "--learning_rate=2e-5"
+            - "--save_interval=500"
+          env:
+            - name: HF_HOME
+              value: /data/hf_cache
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: soyr-redhat-erebus-v2-secrets
+                  key: hf-token
+                  optional: true
+            - name: TOKENIZERS_PARALLELISM
+              value: "false"
+            - name: NCCL_DEBUG
+              value: "WARN"
+            - name: NCCL_ASYNC_ERROR_HANDLING
+              value: "1"
+            - name: TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC
+              value: "600"
+            - name: TORCH_NCCL_BLOCKING_WAIT
+              value: "0"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: TRITON_CACHE_DIR
+              value: /tmp/.triton
+            - name: PYTORCH_CUDA_ALLOC_CONF
+              value: "max_split_size_mb:512"
+          resources:
+            requests:
+              nvidia.com/gpu: "4"
+              cpu: "32"
+              memory: 128Gi
+            limits:
+              nvidia.com/gpu: "4"
+              cpu: "40"
+              memory: 256Gi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: soyr-redhat-erebus-v2-1.5b-data
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Gi
